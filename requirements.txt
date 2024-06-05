@@ -1,5 +1,11 @@
+aioredis==2.0.1
+aredis==1.1.8
 async-timeout==4.0.3
+asyncpg==0.29.0
+asynctest==0.13.0
 dnspython==2.6.1
+motor==3.4.0
 psycopg2-binary==2.9.9
 pymongo==4.7.3
 redis==5.0.4
+typing_extensions==4.12.1
