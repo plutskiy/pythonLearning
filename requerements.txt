@@ -1,0 +1,5 @@
+async-timeout==4.0.3
+dnspython==2.6.1
+psycopg2-binary==2.9.9
+pymongo==4.7.3
+redis==5.0.4
