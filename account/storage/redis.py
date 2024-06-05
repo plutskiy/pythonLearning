@@ -1,15 +1,17 @@
+import redis.asyncio as aioredis
 from .my_protocol import AccountsStorageProtocol
-import redis
 from ..model import Account, AccountStatus
-from typing import Optional, Protocol, List
-
+from typing import Optional, List
 
 class AccountsRedisStorage(AccountsStorageProtocol):
     def __init__(self):
-        self.r = redis.Redis(host='95.164.7.8', port=6379, db=0)
+        self.r = None
 
-    def add_account(self):
-        account_id = self.r.incr('account_id')
+    async def initialize(self):
+        self.r = aioredis.Redis(host='95.164.7.8', port=6379, decode_responses=True)
+
+    async def add_account(self):
+        account_id = await self.r.incr('account_id')
 
         account_data = {
             'phone_number': '777',
@@ -17,29 +19,29 @@ class AccountsRedisStorage(AccountsStorageProtocol):
             'status': AccountStatus.PENDING.value
         }
 
-        self.r.hset(f"account:{account_id}", mapping=account_data)
+        await self.r.rpush(f"account:{account_id}", *account_data.values())
 
-    def get_account_by_id(self, account_id: int) -> Optional[Account]:
-        account_data = self.r.hgetall(f"account:{account_id}")
+    async def get_account_by_id(self, account_id: int) -> Optional[Account]:
+        account_data = await self.r.lrange(f"account:{account_id}", 0, -1)
         if not account_data:
             return None
         return Account(
             id=account_id,
-            phone_number=account_data[b'phone_number'].decode(),
-            password=account_data[b'password'].decode(),
-            status=AccountStatus(account_data[b'status'].decode())
+            phone_number=account_data[0],
+            password=account_data[1],
+            status=AccountStatus(account_data[2])
         )
 
-    def get_all_accounts(self) -> List[Account]:
-        keys = self.r.keys('account:*')
+    async def get_all_accounts(self) -> List[Account]:
+        keys = await self.r.keys('account:*')
         accounts = []
         for key in keys:
-            account_data = self.r.hgetall(key)
+            account_data = await self.r.lrange(key, 0, -1)
             account = Account(
-                id=int(key.decode().split(':')[1]),
-                phone_number=account_data[b'phone_number'].decode(),
-                password=account_data[b'password'].decode(),
-                status=AccountStatus(account_data[b'status'].decode())
+                id=int(key.split(':')[1]),
+                phone_number=account_data[0],
+                password=account_data[1],
+                status=AccountStatus(account_data[2])
             )
             accounts.append(account)
 
@@ -47,16 +49,17 @@ class AccountsRedisStorage(AccountsStorageProtocol):
 
         return accounts
 
-    def mark_account_as_blocked(self, id: str):
-        self.r.hset(f"account:{id}", 'status', AccountStatus.BLOCKED.value)
+    async def mark_account_as_blocked(self, id: int):
+        await self.r.lset(f"account:{id}", 2, AccountStatus.BLOCKED.value)
 
-    def set_account_processing(self, id: str):
-        self.r.hset(f"account:{id}", 'status', AccountStatus.PROCESSING.value)
+    async def set_account_processing(self, id: int):
+        await self.r.lset(f"account:{id}", 2, AccountStatus.PROCESSING.value)
 
-    def set_account_pending(self, account_id: int) -> Optional[Account]:
-        self.r.hset(f"account:{id}", 'status', AccountStatus.PENDING.value)
+    async def set_account_pending(self, id: int):
+        await self.r.lset(f"account:{id}", 2, AccountStatus.PENDING.value)
 
-    def clear(self):
-        keys = self.r.keys('account:*')
-        if keys:
-            self.r.delete(*keys)
+    async def clear(self):
+        await self.r.flushdb()
+
+    async def close(self):
+        self.r.close()

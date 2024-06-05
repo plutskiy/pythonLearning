@@ -1,5 +1,5 @@
+import asyncio
 import unittest
-from dataclasses import dataclass
 from account.model import AccountStatus, Account
 from account.storage.my_protocol import AccountsStorageProtocol
 from account.storage.postgres import AccountsPostgresStorage
@@ -7,52 +7,61 @@ from account.storage.mongo import AccountsMongoStorage
 from account.storage.redis import AccountsRedisStorage
 
 
-@dataclass
 class AccountManager:
-    accounts_storage: AccountsStorageProtocol
+    def __init__(self, accounts_storage: AccountsStorageProtocol):
+        self.accounts_storage = accounts_storage
 
-    def register_10_accounts(self):
-        for i in range(10):
-            self.accounts_storage.add_account()
+    async def register_10_accounts(self):
+        for _ in range(10):
+            await self.accounts_storage.add_account()
 
-    def block_last_account(self):
-        accounts = self.accounts_storage.get_all_accounts()
+    async def block_last_account(self):
+        accounts = await self.accounts_storage.get_all_accounts()
         last_account = accounts[-1]
-        self.accounts_storage.mark_account_as_blocked(last_account.id)
+        await self.accounts_storage.mark_account_as_blocked(last_account.id)
 
-    def work_with_2_and_4_accounts(self):
-        accounts = self.accounts_storage.get_all_accounts()
+    async def work_with_2_and_4_accounts(self):
+        accounts = await self.accounts_storage.get_all_accounts()
         second = accounts[1]
         fourth = accounts[3]
-        self.accounts_storage.set_account_processing(second.id)
-        self.accounts_storage.set_account_processing(fourth.id)
+        await self.accounts_storage.set_account_processing(second.id)
+        await self.accounts_storage.set_account_processing(fourth.id)
 
-    def clear(self):
-        self.accounts_storage.clear()
+    async def clear(self):
+        await self.accounts_storage.clear()
 
 
-class TestAccountManager(unittest.TestCase):
-    def setUp(self):
-        self.realisations = [AccountsRedisStorage, AccountsPostgresStorage, AccountsMongoStorage]
+class TestAccountManager(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.loop = asyncio.get_running_loop()
 
-    def test_account_manager_redis(self):
-        self._run_test(AccountsRedisStorage())
+    async def asyncTearDown(self):
+        await self.storage.close()
 
-    def test_account_manager_postgres(self):
-        self._run_test(AccountsPostgresStorage())
+    async def test_account_manager_redis(self):
+        self.storage = AccountsRedisStorage()
+        await self.storage.initialize()
+        await self._run_test(self.storage)
 
-    def test_account_manager_mongo(self):
-        self._run_test(AccountsMongoStorage())
+    async def test_account_manager_postgres(self):
+        self.storage = AccountsPostgresStorage()
+        await self.storage.initialize()
+        await self._run_test(self.storage)
 
-    def _run_test(self, storage):
+    async def test_account_manager_mongo(self):
+        self.storage = AccountsMongoStorage(asyncio.get_running_loop())
+        await self.storage.initialize()
+        await self._run_test(self.storage)
+
+    async def _run_test(self, storage: AccountsStorageProtocol):
         am = AccountManager(storage)
         try:
-            accounts = am.accounts_storage.get_all_accounts()
+            accounts = await am.accounts_storage.get_all_accounts()
             self.assertEqual(len(accounts), 0)
-            am.register_10_accounts()
-            am.work_with_2_and_4_accounts()
-            am.block_last_account()
-            accounts = am.accounts_storage.get_all_accounts()
+            await am.register_10_accounts()
+            await am.work_with_2_and_4_accounts()
+            await am.block_last_account()
+            accounts = await am.accounts_storage.get_all_accounts()
             self.assertEqual(len(accounts), 10)
             self.assertEqual(accounts[0].status, AccountStatus.PENDING)
             self.assertEqual(accounts[1].status, AccountStatus.PROCESSING)
@@ -64,9 +73,9 @@ class TestAccountManager(unittest.TestCase):
             self.assertEqual(accounts[7].status, AccountStatus.PENDING)
             self.assertEqual(accounts[8].status, AccountStatus.PENDING)
             self.assertEqual(accounts[9].status, AccountStatus.BLOCKED)
-            print(f'With realisation {type(storage).__name__} everything is OK')
+            print(f'С реализацией {type(storage).__name__} все в порядке')
         finally:
-            am.clear()
+            await am.clear()
 
 
 if __name__ == '__main__':
